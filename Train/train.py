@@ -7,7 +7,12 @@ from sklearn.model_selection import train_test_split
 from keras.models import Sequential
 from keras.layers import Lambda, Conv2D, Dropout, Dense, Flatten
 from keras.optimizers import Adam
+from keras.callbacks import EarlyStopping
 from keras.callbacks import ModelCheckpoint
+from keras.callbacks import CSVLogger
+
+
+###python train.py -d /Users/victormilani/data_udacity -t 0.3 -n 300 -s 20000 -b 32 -o True###
 
 # Fixar semente para reprodutibilidade
 np.random.seed(42)
@@ -81,45 +86,59 @@ def batch_generator(data_dir, image_paths, steering_angles, batch_size, is_train
         yield np.array(batch_images), np.array(batch_steerings)
 
 def build_model():
-    """
-    Modelo CNN baseado na arquitetura da NVIDIA
-    """
     model = Sequential()
-    model.add(Lambda(lambda x: x - 0.5, input_shape=(66, 200, 3)))  # Normalização
+    model.add(Lambda(lambda x: x / 127.5 - 1.0, input_shape=(66, 200, 3)))
     model.add(Conv2D(24, (5, 5), strides=(2, 2), activation='elu'))
     model.add(Conv2D(36, (5, 5), strides=(2, 2), activation='elu'))
     model.add(Conv2D(48, (5, 5), strides=(2, 2), activation='elu'))
     model.add(Conv2D(64, (3, 3), activation='elu'))
     model.add(Conv2D(64, (3, 3), activation='elu'))
-    model.add(Dropout(0.5))  # Evita overfitting
+    model.add(Dropout(0.5))
     model.add(Flatten())
     model.add(Dense(100, activation='elu'))
     model.add(Dense(50, activation='elu'))
     model.add(Dense(10, activation='elu'))
-    model.add(Dense(1))  # Saída do ângulo de direção
+    model.add(Dense(1))
 
-    model.compile(loss='mse', optimizer=Adam(learning_rate=0.0001))
+    optimizer = Adam(learning_rate=0.0001, decay=1e-6)  # Adicionando decaimento na taxa de aprendizado
+    model.compile(loss='mse', optimizer=optimizer)
 
     return model
 
 def train_model(model, args, X_train, X_valid, y_train, y_valid):
     """
-    Treina o modelo usando um gerador de dados
+    Treina o modelo com callbacks para salvar os melhores pesos, evitar overfitting e registrar logs de treinamento.
     """
-    checkpoint = ModelCheckpoint('model-{epoch:03d}.h5',
-                                 monitor='val_loss',
-                                 save_best_only=args.save_best_only,
-                                 mode='auto')
 
-    model.fit(batch_generator(args.data_dir, X_train, y_train, args.batch_size, True),
-              steps_per_epoch=args.samples_per_epoch // args.batch_size,
-              epochs=args.nb_epoch,
-              validation_data=batch_generator(args.data_dir, X_valid, y_valid, args.batch_size, False),
-              validation_steps=len(X_valid) // args.batch_size,
-              callbacks=[checkpoint],
-              verbose=1)
+    csv_logger = CSVLogger('training_log.csv', append=True)
+
+    checkpoint = ModelCheckpoint(
+        'model-{epoch:03d}.h5',
+        monitor='val_loss',
+        save_best_only=args.save_best_only,
+        mode='auto',
+        verbose=1
+    )
+
+    early_stop = EarlyStopping(
+        monitor='val_loss',
+        patience=10,
+        restore_best_weights=True,
+        verbose=1
+    )
+
+    model.fit(
+        batch_generator(args.data_dir, X_train, y_train, args.batch_size, True),
+        steps_per_epoch=max(1, args.samples_per_epoch // args.batch_size),  # Evita erro de divisão por zero
+        epochs=args.nb_epoch,
+        validation_data=batch_generator(args.data_dir, X_valid, y_valid, args.batch_size, False),
+        validation_steps=max(1, len(X_valid) // args.batch_size),  # Evita erro caso len(X_valid) seja menor que batch_size
+        callbacks=[checkpoint, early_stop, csv_logger],
+        verbose=1
+    )
 
     model.save("model.h5")
+    print("✅ Modelo salvo como model.h5")
 
 def main():
     """
