@@ -87,14 +87,14 @@ def build_model():
     model.add(Conv2D(48, (5, 5), strides=(2, 2), activation='elu'))
     model.add(Conv2D(64, (3, 3), activation='elu'))
     model.add(Conv2D(64, (3, 3), activation='elu'))
-    model.add(Dropout(0.5))
+    model.add(Dropout(0.3))
     model.add(Flatten())
     model.add(Dense(100, activation='elu'))
     model.add(Dense(50, activation='elu'))
     model.add(Dense(10, activation='elu'))
     model.add(Dense(1))
 
-    optimizer = Adam(learning_rate=0.0001, decay=1e-6)  
+    optimizer = Adam(learning_rate=0.0003, decay=1e-6)  
     model.compile(loss='mse', optimizer=optimizer)
 
     return model
@@ -144,7 +144,7 @@ def main():
     parser.add_argument('-t', dest='test_size', type=float, default=0.2, help='Proporção de dados para validação')
     parser.add_argument('-n', dest='nb_epoch', type=int, default=10, help='Número de épocas de treinamento')
     parser.add_argument('-s', dest='samples_per_epoch', type=int, default=20000, help='Amostras por época')
-    parser.add_argument('-b', dest='batch_size', type=int, default=32, help='Tamanho do batch')
+    parser.add_argument('-b', dest='batch_size', type=int, default=16, help='Tamanho do batch')
     parser.add_argument('-o', dest='save_best_only', type=bool, default=True, help='Salvar apenas melhores modelos')
 
     args = parser.parse_args()
