@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 import cv2
 
 # Caminhos corretos para seus arquivos
-BASE_DIR = "users//victormilani//data_udacity"
+BASE_DIR = "/Users/victormilani/data_udacity"
 CSV_ORIGINAL = os.path.join(BASE_DIR, "driving_log.csv")
 IMG_FOLDER = os.path.join(BASE_DIR, "IMG")
 CSV_LIMPO = os.path.join(BASE_DIR, "driving_log_cleaned.csv")

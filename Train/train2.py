@@ -3,26 +3,27 @@ import numpy as np
 import cv2
 import os
 import argparse
+import datetime
 from sklearn.model_selection import train_test_split
 from keras.models import Sequential
 from keras.layers import Lambda, Conv2D, Dropout, Dense, Flatten
 from keras.optimizers import Adam
 from keras.callbacks import EarlyStopping, ModelCheckpoint, CSVLogger, ReduceLROnPlateau
 
+## python train2.py -d /Users/victormilani/data_udacity -t 0.2 -n 100 -b 16 -o True ##
+
 np.random.seed(42)
 
 def load_data(args):
-    csv_path = os.path.join(args.data_dir, 'driving_log.csv')
+    csv_path = os.path.join(args.data_dir, args.csv_file)
     if not os.path.exists(csv_path):
         raise FileNotFoundError(f"Arquivo CSV não encontrado: {csv_path}")
 
     data_df = pd.read_csv(csv_path, names=['center', 'left', 'right', 'steering', 'throttle', 'brake', 'speed'])
 
-    # Remover espaços extras dos caminhos dos arquivos
     for col in ['center', 'left', 'right']:
         data_df[col] = data_df[col].str.strip()
 
-    # Ajustar os caminhos das imagens
     def fix_path(filename):
         return os.path.join(args.data_dir, "IMG", os.path.basename(filename))
 
@@ -43,11 +44,11 @@ def preprocess_image(img_path):
         raise ValueError(f"Erro ao carregar imagem: {img_path}")
 
     img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-    img = cv2.resize(img, (200, 66)) 
-    return img / 255.0  
+    img = cv2.resize(img, (200, 66))
+    return img / 255.0
 
 def batch_generator(data_dir, image_paths, steering_angles, batch_size, is_training):
-    correction = 0.2  
+    correction = 0.2
 
     while True:
         indices = np.random.permutation(len(image_paths))
@@ -70,7 +71,7 @@ def batch_generator(data_dir, image_paths, steering_angles, batch_size, is_train
 
             img = preprocess_image(img_path)
 
-            if np.random.rand() < 0.5:  
+            if np.random.rand() < 0.5:
                 img = np.fliplr(img)
                 steering = -steering
 
@@ -94,7 +95,7 @@ def build_model():
     model.add(Dense(10, activation='elu'))
     model.add(Dense(1))
 
-    optimizer = Adam(learning_rate=0.0003, decay=1e-6)  
+    optimizer = Adam(learning_rate=0.0003, decay=1e-6)
     model.compile(loss='mse', optimizer=optimizer)
 
     return model
@@ -127,7 +128,7 @@ def train_model(model, args, X_train, X_valid, y_train, y_valid):
 
     model.fit(
         batch_generator(args.data_dir, X_train, y_train, args.batch_size, True),
-        steps_per_epoch=max(1, args.samples_per_epoch // args.batch_size),
+        steps_per_epoch = max(1, len(X_train) // args.batch_size),
         epochs=args.nb_epoch,
         validation_data=batch_generator(args.data_dir, X_valid, y_valid, args.batch_size, False),
         validation_steps=max(1, len(X_valid) // args.batch_size),
@@ -135,17 +136,18 @@ def train_model(model, args, X_train, X_valid, y_train, y_valid):
         verbose=1
     )
 
-    model.save("model.h5")
-    print("Modelo salvo como model.h5")
+    model_name = f"model_{datetime.datetime.now().strftime('%Y%m%d_%H%M')}.h5"
+    model.save(model_name)
+    print(f"Modelo salvo como {model_name}")
 
 def main():
     parser = argparse.ArgumentParser(description='Treinamento de Rede Neural para Carro Autônomo')
-    parser.add_argument('-d', dest='data_dir', type=str, default='data', help='Diretório dos dados')
-    parser.add_argument('-t', dest='test_size', type=float, default=0.2, help='Proporção de dados para validação')
-    parser.add_argument('-n', dest='nb_epoch', type=int, default=10, help='Número de épocas de treinamento')
-    parser.add_argument('-s', dest='samples_per_epoch', type=int, default=20000, help='Amostras por época')
+    parser.add_argument('-d', dest='data_dir', type=str, required=True, help='Diretório dos dados')
+    parser.add_argument('-c', dest='csv_file', type=str, default='driving_log_cleaned.csv', help='Nome do CSV')
+    parser.add_argument('-t', dest='test_size', type=float, default=0.2, help='Proporção de validação')
+    parser.add_argument('-n', dest='nb_epoch', type=int, default=10, help='Épocas')
     parser.add_argument('-b', dest='batch_size', type=int, default=16, help='Tamanho do batch')
-    parser.add_argument('-o', dest='save_best_only', type=bool, default=True, help='Salvar apenas melhores modelos')
+    parser.add_argument('-o', dest='save_best_only', type=bool, default=True, help='Salvar melhores modelos')
 
     args = parser.parse_args()
 
