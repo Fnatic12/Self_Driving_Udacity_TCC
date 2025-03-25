@@ -27,7 +27,7 @@ model = None
 prev_image_array = None
 
 # Definição de velocidade máxima e mínima
-MAX_SPEED = 25
+MAX_SPEED = 20
 MIN_SPEED = 10
 speed_limit = MAX_SPEED
 
