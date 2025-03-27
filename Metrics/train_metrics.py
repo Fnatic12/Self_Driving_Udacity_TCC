@@ -2,7 +2,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import os
 
-def plot_training_log(csv_path='training_log.csv', save_dir='plots'):
+def plot_training_log(csv_path='training_log_nvidia.csv', save_dir='plots'):
     # Cria diretório para salvar os gráficos, se não existir
     os.makedirs(save_dir, exist_ok=True)
 

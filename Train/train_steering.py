@@ -70,7 +70,7 @@ def build_model():
     model.add(Conv2D(48, (5, 5), strides=(2, 2), activation='elu'))
     model.add(Conv2D(64, (3, 3), activation='elu'))
     model.add(Conv2D(64, (3, 3), activation='elu'))
-    model.add(Dropout(0.3))
+    model.add(Dropout(0.5))
     model.add(Flatten())
     model.add(Dense(100, activation='elu'))
     model.add(Dense(50, activation='elu'))
@@ -107,7 +107,7 @@ def main():
     parser.add_argument('-c', dest='csv_file', type=str, default='driving_log.csv', help='Nome do CSV')
     parser.add_argument('-t', dest='test_size', type=float, default=0.2, help='Proporção de validação')
     parser.add_argument('-n', dest='nb_epoch', type=int, default=10, help='Épocas')
-    parser.add_argument('-b', dest='batch_size', type=int, default=16, help='Tamanho do batch')
+    parser.add_argument('-b', dest='batch_size', type=int, default=8, help='Tamanho do batch')
     parser.add_argument('-o', dest='save_best_only', type=bool, default=True, help='Salvar melhores modelos')
 
     args = parser.parse_args()

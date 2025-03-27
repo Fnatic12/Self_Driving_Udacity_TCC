@@ -6,12 +6,13 @@ import argparse
 import datetime
 from sklearn.model_selection import train_test_split
 from keras.models import Model
-from keras.layers import Input, Lambda, Conv2D, Dropout, Dense, Flatten
+from keras.layers import Input, Dense, Dropout, Flatten
+from keras.applications import MobileNetV2
+from keras.applications.mobilenet_v2 import preprocess_input
 from keras.optimizers import Adam
 from keras.callbacks import EarlyStopping, ModelCheckpoint, CSVLogger, ReduceLROnPlateau
 
-##python train3.py -d ./data -c driving_log.csv -t 0.2 -n 100 -b 16 -o True -m nvidia##
-#python train3.py -d ./data -c driving_log.csv -t 0.2 -n 100 -b 16 -o True -m comma#
+#python train_mobilenet.py -d /Users/victormilani/data_udacity -c driving_log.csv -t 0.2 -n 100 -b 16 -o True -m mobilenet#
 
 np.random.seed(42)
 
@@ -20,7 +21,7 @@ def load_data(args):
     if not os.path.exists(csv_path):
         raise FileNotFoundError(f"Arquivo CSV não encontrado: {csv_path}")
 
-    data_df = pd.read_csv(csv_path, names=['img_center', 'img_left', 'img_right', 'ang_right', 'ang_left', 'throttle', 'speed'])
+    data_df = pd.read_csv(csv_path, names=['img_center', 'img_left', 'img_right', 'ang_left', 'ang_right', 'throttle', 'speed'])
 
     data_df['img_center'] = data_df['img_center'].apply(lambda x: os.path.join(args.data_dir, "IMG", os.path.basename(str(x).strip())))
     data_df['steering'] = (data_df['ang_left'].astype(float) + data_df['ang_right'].astype(float)) / 2
@@ -40,8 +41,8 @@ def preprocess_image(img_path):
         raise ValueError(f"Erro ao carregar imagem: {img_path}")
 
     img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-    img = cv2.resize(img, (200, 66))
-    return img / 255.0
+    img = cv2.resize(img, (224, 224))
+    return preprocess_input(img)
 
 def batch_generator(image_paths, targets, batch_size, is_training):
     while True:
@@ -69,46 +70,19 @@ def batch_generator(image_paths, targets, batch_size, is_training):
             'throttle': batch_targets[:, 1]
         }
 
-def build_model_nvidia():
-    inputs = Input(shape=(66, 200, 3))
-    x = Lambda(lambda x: x - 0.5)(inputs)
-    x = Conv2D(24, (5, 5), strides=(2, 2), activation='elu')(x)
-    x = Conv2D(36, (5, 5), strides=(2, 2), activation='elu')(x)
-    x = Conv2D(48, (5, 5), strides=(2, 2), activation='elu')(x)
-    x = Conv2D(64, (3, 3), activation='elu')(x)
-    x = Conv2D(64, (3, 3), activation='elu')(x)
-    x = Dropout(0.5)(x)
+def build_model_mobilenet():
+    base_model = MobileNetV2(input_shape=(224, 224, 3), include_top=False, weights='imagenet')
+    base_model.trainable = False
+
+    x = base_model.output
     x = Flatten()(x)
-    x = Dense(100, activation='elu')(x)
-    x = Dense(50, activation='elu')(x)
-    x = Dense(10, activation='elu')(x)
+    x = Dense(128, activation='relu')(x)
+    x = Dropout(0.3)(x)
 
     steering_output = Dense(1, name='steering')(x)
     throttle_output = Dense(1, name='throttle')(x)
 
-    model = Model(inputs=inputs, outputs=[steering_output, throttle_output])
-
-    model.compile(
-        optimizer=Adam(learning_rate=0.0003, decay=1e-6),
-        loss={'steering': 'mse', 'throttle': 'mse'},
-        loss_weights={'steering': 1.0, 'throttle': 1.0}
-    )
-
-    return model
-
-def build_model_comma():
-    inputs = Input(shape=(66, 200, 3))
-    x = Lambda(lambda x: x / 255.0 - 0.5)(inputs)
-    x = Conv2D(16, (8, 8), strides=(4, 4), activation='relu')(x)
-    x = Conv2D(32, (5, 5), strides=(2, 2), activation='relu')(x)
-    x = Conv2D(64, (5, 5), strides=(2, 2), activation='relu')(x)
-    x = Flatten()(x)
-    x = Dense(512, activation='relu')(x)
-
-    steering_output = Dense(1, name='steering')(x)
-    throttle_output = Dense(1, name='throttle')(x)
-
-    model = Model(inputs=inputs, outputs=[steering_output, throttle_output])
+    model = Model(inputs=base_model.input, outputs=[steering_output, throttle_output])
 
     model.compile(
         optimizer=Adam(learning_rate=0.0003),
@@ -140,14 +114,14 @@ def train_model(model, args, X_train, X_valid, y_train, y_valid):
     print(f"✅ Modelo salvo como {model_name}")
 
 def main():
-    parser = argparse.ArgumentParser(description='Treinamento de Rede Neural para Carro Autônomo')
+    parser = argparse.ArgumentParser(description='Treinamento com MobileNetV2 para carro autônomo')
     parser.add_argument('-d', dest='data_dir', type=str, required=True, help='Diretório dos dados')
     parser.add_argument('-c', dest='csv_file', type=str, default='driving_log.csv', help='Nome do CSV')
     parser.add_argument('-t', dest='test_size', type=float, default=0.2, help='Proporção de validação')
     parser.add_argument('-n', dest='nb_epoch', type=int, default=10, help='Épocas')
     parser.add_argument('-b', dest='batch_size', type=int, default=16, help='Tamanho do batch')
     parser.add_argument('-o', dest='save_best_only', type=bool, default=True, help='Salvar melhores modelos')
-    parser.add_argument('-m', dest='model_name', type=str, required=True, choices=['nvidia', 'comma'], help='Nome do modelo para treinar')
+    parser.add_argument('-m', dest='model_name', type=str, required=True, choices=['mobilenet'], help='Nome do modelo')
 
     args = parser.parse_args()
 
@@ -155,7 +129,7 @@ def main():
     X_train, X_valid, y_train, y_valid = load_data(args)
 
     print("🧠 Criando o modelo...")
-    model = build_model_nvidia() if args.model_name == 'nvidia' else build_model_comma()
+    model = build_model_mobilenet()
 
     print("🚗 Iniciando treinamento...")
     train_model(model, args, X_train, X_valid, y_train, y_valid)
