@@ -2,7 +2,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import os
 
-def plot_training_log(csv_path='training_log_nvidia.csv', save_dir='plots'):
+def plot_training_log(csv_path='training_log.csv', save_dir='plots'):
     # Cria diretório para salvar os gráficos, se não existir
     os.makedirs(save_dir, exist_ok=True)
 
@@ -40,19 +40,6 @@ def plot_training_log(csv_path='training_log_nvidia.csv', save_dir='plots'):
         plt.legend()
         plt.grid(True)
         save_plot('loss_steering')
-        plt.show()
-
-    # Gráfico 3: Throttle
-    if {'loss_throttle', 'val_loss_throttle'}.issubset(available_columns):
-        plt.figure(figsize=(8, 5))
-        plt.plot(df['loss_throttle'], label='Train Throttle')
-        plt.plot(df['val_loss_throttle'], label='Val Throttle')
-        plt.xlabel('Época')
-        plt.ylabel('Loss (Throttle)')
-        plt.title('Evolução da Loss - Throttle')
-        plt.legend()
-        plt.grid(True)
-        save_plot('loss_throttle')
         plt.show()
 
     # Gráfico 4: Learning Rate
