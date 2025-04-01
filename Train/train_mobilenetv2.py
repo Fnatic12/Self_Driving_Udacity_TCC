@@ -4,14 +4,12 @@ import cv2
 import os
 import argparse
 import datetime
-import time
-import tensorflow as tf
 from sklearn.model_selection import train_test_split
-from keras.applications import MobileNetV2
 from keras.models import Model
-from keras.layers import Dense, GlobalAveragePooling2D, Input
+from keras.layers import Dense, Dropout, GlobalAveragePooling2D, Input
+from keras.applications.mobilenet_v2 import MobileNetV2, preprocess_input
 from keras.optimizers import Adam
-from keras.callbacks import EarlyStopping, CSVLogger, ReduceLROnPlateau, Callback
+from keras.callbacks import EarlyStopping, CSVLogger, ReduceLROnPlateau
 
 np.random.seed(42)
 
@@ -24,78 +22,74 @@ def load_data(args):
     y = data_df['steering'].values
     return train_test_split(X, y, test_size=args.test_size, random_state=42)
 
-def preprocess_image_tf(img_path, label):
-    img = tf.io.read_file(img_path)
-    img = tf.image.decode_jpeg(img, channels=3)
-    img = tf.image.resize(img, [224, 224])
-    img = tf.keras.applications.mobilenet_v2.preprocess_input(img)
-    return img, label
+def preprocess_image_mobilenet(img_path):
+    img = cv2.imread(img_path)
+    img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+    img = cv2.resize(img, (224, 224))
+    img = preprocess_input(img.astype(np.float32))
+    return img
 
-def load_dataset(X, y, batch_size, is_training):
-    dataset = tf.data.Dataset.from_tensor_slices((X, y))
-    if is_training:
-        dataset = dataset.shuffle(buffer_size=2048)
-    dataset = dataset.map(preprocess_image_tf, num_parallel_calls=tf.data.AUTOTUNE)
-    dataset = dataset.batch(batch_size).prefetch(tf.data.AUTOTUNE)
-    return dataset
+def batch_generator(image_paths, steering_angles, batch_size, is_training):
+    while True:
+        indices = np.random.permutation(len(image_paths))
+        batch_images, batch_steerings = [], []
+        for i in range(batch_size):
+            index = indices[i % len(image_paths)]
+            img = preprocess_image_mobilenet(image_paths[index])
+            steering = steering_angles[index]
+            if is_training and np.random.rand() < 0.5:
+                img = np.fliplr(img)
+                steering = -steering
+            batch_images.append(img)
+            batch_steerings.append(steering)
+        yield np.array(batch_images), np.array(batch_steerings)
 
-def build_model():
+def build_mobilenetv2():
     base_model = MobileNetV2(input_shape=(224, 224, 3), include_top=False, weights='imagenet')
-    base_model.trainable = False  # congelar o backbone
+    for layer in base_model.layers[:100]:
+        layer.trainable = False
     x = base_model.output
     x = GlobalAveragePooling2D()(x)
-    x = Dense(50, activation='relu')(x)
-    predictions = Dense(1)(x)
-    model = Model(inputs=base_model.input, outputs=predictions)
-    model.compile(optimizer=Adam(learning_rate=0.0003), loss='mse')
+    x = Dropout(0.3)(x)
+    x = Dense(32, activation='relu')(x)
+    output = Dense(1)(x)
+    model = Model(inputs=base_model.input, outputs=output)
+    model.compile(optimizer=Adam(learning_rate=0.0001), loss='mse')
     return model
 
-class EpochTimer(Callback):
-    def on_epoch_begin(self, epoch, logs=None):
-        self.start = time.time()
-    def on_epoch_end(self, epoch, logs=None):
-        print(f"⏱️ Tempo da epoch {epoch+1}: {time.time() - self.start:.2f}s")
-
-def train_model(model, args, train_ds, valid_ds):
-    csv_logger = CSVLogger('training_log_mobilenet.csv', append=True)
-    early_stop = EarlyStopping(monitor='val_loss', patience=50, restore_best_weights=True, verbose=2)
-    reduce_lr = ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=5, min_lr=1e-6, verbose=2)
-    timer = EpochTimer()
+def train_model(model, args, X_train, X_valid, y_train, y_valid):
+    csv_logger = CSVLogger('training_log_mobilenetv2.csv', append=True)
+    early_stop = EarlyStopping(monitor='val_loss', patience=10, restore_best_weights=True, verbose=1)
+    reduce_lr = ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=3, min_lr=1e-6, verbose=1)
 
     model.fit(
-        train_ds,
+        batch_generator(X_train, y_train, args.batch_size, True),
+        steps_per_epoch=len(X_train) // args.batch_size,
         epochs=args.nb_epoch,
-        validation_data=valid_ds,
-        callbacks=[early_stop, reduce_lr, csv_logger, timer],
-        verbose=2
+        validation_data=batch_generator(X_valid, y_valid, args.batch_size, False),
+        validation_steps=len(X_valid) // args.batch_size,
+        callbacks=[early_stop, reduce_lr, csv_logger],
+        verbose=1
     )
-    model_name = f"mobilenet_model_{datetime.datetime.now().strftime('%Y%m%d_%H%M')}.h5"
+    model_name = f"model_mobilenetv2_{datetime.datetime.now().strftime('%Y%m%d_%H%M')}.h5"
     model.save(model_name)
     print(f"✅ Modelo salvo como {model_name}")
 
 def main():
-    parser = argparse.ArgumentParser(description='Treinamento com MobileNetV2 para Carro Autônomo')
+    parser = argparse.ArgumentParser()
     parser.add_argument('-d', dest='data_dir', type=str, required=True)
     parser.add_argument('-c', dest='csv_file', type=str, default='driving_log_cleaned.csv')
     parser.add_argument('-t', dest='test_size', type=float, default=0.2)
-    parser.add_argument('-n', dest='nb_epoch', type=int, default=100)
-    parser.add_argument('-b', dest='batch_size', type=int, default=32)
-    parser.add_argument('-o', dest='save_best_only', type=bool, default=True)
-
+    parser.add_argument('-n', dest='nb_epoch', type=int, default=10)
+    parser.add_argument('-b', dest='batch_size', type=int, default=8)
     args = parser.parse_args()
 
-    print("📅 Carregando os dados...")
+    print("📥 Carregando os dados...")
     X_train, X_valid, y_train, y_valid = load_data(args)
-
-    print("📦 Preparando datasets...")
-    train_ds = load_dataset(X_train, y_train, args.batch_size, True)
-    valid_ds = load_dataset(X_valid, y_valid, args.batch_size, False)
-
     print("🧠 Criando o modelo MobileNetV2...")
-    model = build_model()
-
+    model = build_mobilenetv2()
     print("🚗 Iniciando treinamento...")
-    train_model(model, args, train_ds, valid_ds)
+    train_model(model, args, X_train, X_valid, y_train, y_valid)
 
 if __name__ == '__main__':
     main()
